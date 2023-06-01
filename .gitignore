@@ -1,3 +1,4 @@
 champ_select_project/project_details/
 champ_select_project/secrets.yml
 venv/
+.idea/
