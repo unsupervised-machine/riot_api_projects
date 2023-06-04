@@ -18,7 +18,7 @@ def connect_to_database(yaml_dict, server, database):
     (an engine does not open the connection but we can use it to open connections later)
     :param yaml_dict: dictionary of parsed yaml file
     :param server: string, target server to connect to
-    :param data_base: string, target database to connect to
+    :param database: string, target database to connect to
     :return: engine that will allow
     """
     username = yaml_dict[server][database]['username']
@@ -58,26 +58,125 @@ def execute_query(database_connection, query):
     database_connection.close()
     return df
 
+def close_all_active_connections():
+    """
+    opens a new connection, executes query to close all open connections, closes self at end
+    :return: None
+    """
+    query= """
+    SELECT pg_terminate_backend(pg_stat_activity.pid)
+    FROM pg_stat_activity
+    WHERE pg_stat_activity.datname = 'league_db_server'
+    AND pid <> pg_backend_pid();
+    """
+    db_connection = connect_to_database(yaml_dict, 'league_db_server', 'test_league_db')
+    execute_query(db_connection, query)
+    return
+
+def find_open_connections():
+    """
+    creates a new connection lists this open connection as well as any others that are running
+    :return:
+    """
+    query = """
+    SELECT *
+    FROM pg_stat_activity
+    WHERE state = 'active'
+"""
+    db_connection = connect_to_database(yaml_dict, 'league_db_server', 'test_league_db')
+    result = execute_query(db_connection, query)
+    return result
+
 
 # TODO write another file that explains how to use function with examples
 # Example how to pull data from database
 test_connection = connect_to_database(yaml_dict, 'league_db_server', 'test_league_db')
 query = "SELECT * FROM sample_table"
 test = execute_query(test_connection, query)
+open_connections = find_open_connections()
+close_all_active_connections()
 
 
+def fetch_api_call(api_url):
+    response = requests.get(api_url)
+    # Handle rate limit (429) errors by waiting and retrying after a delay
+    if response.status_code == 429:
+        print('Waiting due to rate limit...')
+        time.sleep(20)
+    # Parse the JSON response into match data and store it in the dictionary
+    data = response.json()
+    return data
 
 
-
-def get_leagues(api_key, region):
+def get_leagues(api_key=API_KEY, region='na1', queue_type='RANKED_SOLO_5x5', tier='DIAMOND', divison='I', page='1'):
     """
-    produces a list of leagues (types of ranked ladders) for a given region
+    :param api_key:
     :param region:
-    :return: list of league_ids
+    :param queue_type:
+    :param tier:
+    :param divison:
+    :param page:
+    :return:
     """
-    pass
+    paths = {
+        'challenger': f'https://{region}.api.riotgames.com/lol/league/v4/{tier}leagues/by-queue/{queue_type}?api_key={api_key}',
+        'grandmaster': f'https://{region}.api.riotgames.com/lol/league/v4/{tier}leagues/by-queue/{queue_type}?api_key={api_key}',
+        'master': f'https://{region}.api.riotgames.com/lol/league/v4/{tier}leagues/by-queue/{queue_type}?api_key={api_key}'
+    }
+    api_url = paths.get(tier, f'https://na1.api.riotgames.com/lol/league/v4/entries/{queue_type}/{tier}/{divison}?page={page}&api_key={api_key}')
+    data = fetch_api_call(api_url)
+    return data
+
+# read the puuid database table if it exists
+# convert it to dataframe
+# call the new data from riot api
+# convert it to dataframe
+# merge to find only new puuids
+# add these entries to the table
+
+# pull from api
+from_api = get_leagues(api_key=API_KEY, region='na1', queue_type='RANKED_SOLO_5x5', tier='DIAMOND', divison='II', page='46')
+from_api = pd.DataFrame(from_api)
+from_api = from_api.drop('miniSeries', axis=1)
+
+# reads from database table
+db_conn = connect_to_database(yaml_dict, "league_db_server", "test_league_db")
+query = "SELECT * FROM players_tbl"
+from_db = execute_query(db_conn, query)
+
+# use this as an example of things I can do with database
+# finds all rows not already in the database
+merged = from_api.merge(from_db, on='summonerId', how='left', indicator=True, suffixes=('', '_df2'))
+# remove rows that are found in right table
+rows_only_in_api = merged[merged['_merge'] == 'left_only']
+# remove extra set of columns
+start_index = rows_only_in_api.columns.get_loc('leagueId_df2')
+end_index = rows_only_in_api.columns.get_loc('_merge')
+rows_only_in_api = rows_only_in_api.drop(rows_only_in_api.columns[start_index:end_index+1], axis=1)
+
+# add these new rows to the database table
+rows_only_in_api.to_sql('players_tbl', db_conn, if_exists='append', index=False)
 
 
+# TODO write function to add all high elo players to the database
+def create_player_list():
+    """
+
+    :return: nothing only updates database
+    """
+    # loop through dII, dI, master, grandmaster, challenger leagues
+    # call api query
+    # call db query
+    # compare them
+    # add new rows to db table
+    # there are 42 diamond 1 pages
+    # there are 45 diamond II pages
+
+
+
+
+
+# might be obsolete now that I can get summonerIds directly from the leagues
 def get_players_from_league(api_key, league_id):
     """
     produces list of player ids from a given league
@@ -125,5 +224,7 @@ def save_dataframe_to_database(dataframe, table_name, database_url):
     # Optional: Print a success message
     print("Data saved successfully to the database!")
     return
+
+
 
 
