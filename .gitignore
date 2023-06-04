@@ -1,5 +1,7 @@
 champ_select_project/project_details/
 champ_select_project/secrets.yml
-champ_select_project/exploratory_analysis.py
+champ_select_project/exploratory_analysis_and_concept_testing/exploratory_analysis.py
+champ_select_project/project_data/
+champ_select_project/exploratory_analysis_and_concept_testing/
 venv/
 .idea/
