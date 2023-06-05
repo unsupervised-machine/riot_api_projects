@@ -85,16 +85,19 @@ def find_open_connections():
 """
     db_connection = connect_to_database(yaml_dict, 'league_db_server', 'test_league_db')
     result = execute_query(db_connection, query)
-    return result
+    return
 
 
+###############################   Test Code for data base connections    #############################################
+######################################################################################################################
 # TODO write another file that explains how to use function with examples
 # Example how to pull data from database
 test_connection = connect_to_database(yaml_dict, 'league_db_server', 'test_league_db')
 query = "SELECT * FROM sample_table"
 test = execute_query(test_connection, query)
-open_connections = find_open_connections()
+find_open_connections()
 close_all_active_connections()
+####################################################################################################################
 
 
 def fetch_api_call(api_url):
@@ -127,6 +130,10 @@ def get_leagues(api_key=API_KEY, region='na1', queue_type='RANKED_SOLO_5x5', tie
     data = fetch_api_call(api_url)
     return data
 
+
+################################ START Testing Pulling Match Ids ###################################################
+####################################################################################################################
+
 # read the puuid database table if it exists
 # convert it to dataframe
 # call the new data from riot api
@@ -135,9 +142,12 @@ def get_leagues(api_key=API_KEY, region='na1', queue_type='RANKED_SOLO_5x5', tie
 # add these entries to the table
 
 # pull from api
-from_api = get_leagues(api_key=API_KEY, region='na1', queue_type='RANKED_SOLO_5x5', tier='DIAMOND', divison='II', page='46')
+
+from_api = get_leagues(api_key=API_KEY, region='na1', queue_type='RANKED_SOLO_5x5', tier='DIAMOND', divison='I', page='1')
 from_api = pd.DataFrame(from_api)
 from_api = from_api.drop('miniSeries', axis=1)
+if 'miniSeries' in from_api.columns:
+    from_api = from_api.drop('miniSeries', axis=1)
 
 # reads from database table
 db_conn = connect_to_database(yaml_dict, "league_db_server", "test_league_db")
@@ -157,34 +167,66 @@ rows_only_in_api = rows_only_in_api.drop(rows_only_in_api.columns[start_index:en
 # add these new rows to the database table
 rows_only_in_api.to_sql('players_tbl', db_conn, if_exists='append', index=False)
 
+####################################################################################################################
+############################## END Testing Pulling Match Ids##########################################################
 
-# TODO write function to add all high elo players to the database
+
 def create_player_list():
     """
 
     :return: nothing only updates database
     """
-    # loop through dII, dI, master, grandmaster, challenger leagues
-    # call api query
-    # call db query
-    # compare them
-    # add new rows to db table
-    # there are 42 diamond 1 pages
-    # there are 45 diamond II pages
+
+    db_conn = connect_to_database(yaml_dict, "league_db_server", "test_league_db")
+    query = "SELECT * FROM players_tbl"
+    from_db = execute_query(db_conn, query)
+
+    list_of_elo_brackets = [['DIAMOND', 'II'], ['DIAMOND', 'I'], ['master', 'I'], ['grandmaster', 'I'], ['challenger', 'I']]
+    for elo_bracket in list_of_elo_brackets:
+        if elo_bracket[0] == 'DIAMOND':
+            for page in range(1, 51):
+                from_api = get_leagues(api_key=API_KEY, region='na1', queue_type='RANKED_SOLO_5x5', tier=elo_bracket[0], divison=elo_bracket[1], page=str(page))
+                # ran out of pages for elo bracket
+                if len(from_api) == 0:
+                    break
+                from_api = pd.DataFrame(from_api)
+                if 'miniSeries' in from_api.columns:
+                    from_api = from_api.drop('miniSeries', axis=1)
+                # FOR DIAMOND MERGE EACH PAGE AND ADD TO DATABASE
+                merged = from_api.merge(from_db, on='summonerId', how='left', indicator=True, suffixes=('', '_df2'))
+                rows_only_in_api = merged[merged['_merge'] == 'left_only']
+                start_index = rows_only_in_api.columns.get_loc('leagueId_df2')
+                end_index = rows_only_in_api.columns.get_loc('_merge')
+                rows_only_in_api = rows_only_in_api.drop(rows_only_in_api.columns[start_index:end_index + 1], axis=1)
+                # Save to db
+                rows_only_in_api.to_sql('players_tbl', db_conn, if_exists='append', index=False)
+        else:
+            from_api = get_leagues(api_key=API_KEY, region='na1', queue_type='RANKED_SOLO_5x5', tier=elo_bracket[0], divison=elo_bracket[1], page='1')
+            from_api = pd.DataFrame(from_api)
+            # from_api = from_api.drop('miniSeries', axis=1)
+
+            # expand entries dictionary
+            expanded_data = from_api['entries'].apply(pd.Series)
+            from_api = pd.concat([from_api, expanded_data], axis=1)
+            from_api = from_api.drop(['entries', 'name'], axis=1)
+            from_api = from_api.rename(columns={'queue': 'queueType'})
+            # check column are equal for both dataframes
+            tier_column = from_api.pop('tier')
+            from_api.insert(2, 'tier', tier_column)
+            rank_column = from_api.pop('rank')
+            from_api.insert(3, 'rank', rank_column)
+
+            merged = from_api.merge(from_db, on='summonerId', how='left', indicator=True, suffixes=('', '_df2'))
+            rows_only_in_api = merged[merged['_merge'] == 'left_only']
+            start_index = rows_only_in_api.columns.get_loc('leagueId_df2')
+            end_index = rows_only_in_api.columns.get_loc('_merge')
+            rows_only_in_api = rows_only_in_api.drop(rows_only_in_api.columns[start_index:end_index + 1], axis=1)
+            # Save to db
+            rows_only_in_api.to_sql('players_tbl', db_conn, if_exists='append', index=False)
+    return
 
 
-
-
-
-# might be obsolete now that I can get summonerIds directly from the leagues
-def get_players_from_league(api_key, league_id):
-    """
-    produces list of player ids from a given league
-    :param league_id:
-    :param api_key:
-    :return: list of player ids
-    """
-    pass
+create_player_list()
 
 
 def get_matches_from_player_id(api_key, player_id, queue_type):
