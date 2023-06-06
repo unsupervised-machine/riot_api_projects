@@ -229,15 +229,50 @@ def create_player_list():
 create_player_list()
 
 
-def get_matches_from_player_id(api_key, player_id, queue_type):
-    """
-    produces list of match ids from a players recent matches, can specify queue type(ranked,aram,etc.)
-    :param player_id:
-    :param api_key:
-    :return:list of matches
-    """
-    pass
 
+
+
+
+def get_list_of_puuid():
+    # pull player_list from db ( needs to exist before hand )
+    # pull puuid_list from db  ( can create if does not exist)
+    # find  all summonerIds that are in player_list but not in puuid_list
+    # do an api call for all those summmonerIds to get their respective puuids
+    # add these puuids to puuid_db
+    # (make sure to rename id to summoner id before saving to db)
+    db_conn = connect_to_database(yaml_dict, "league_db_server", "test_league_db")
+    query = "SELECT * FROM players_tbl"
+    player_list_df = execute_query(db_conn, query)
+    query = "select * from puuid_tbl"
+    try:
+        puuid_df = execute_query(db_conn, query)
+
+    except Exception as e:
+        columns = ["id", "accountId", "puuid", "name", "profileIconId", "revisionDate", "summonerLevel"]
+        puuid_df = pd.DataFrame(columns=columns)
+        print(f"An error occurred: {str(e)}")
+
+    # find all the entries in player_test_table that dont have a corresponding entry in puuid table
+    missing_puuid = pd.merge(player_list_df, puuid_df, left_on='summonerId', right_on='id', how='left', indicator=True, suffixes=('', '_df2'))
+    missing_puuid = missing_puuid[missing_puuid['_merge'] == 'left_only']
+    start_index = missing_puuid.columns.get_loc('id')
+    end_index = missing_puuid.columns.get_loc('_merge')
+    missing_puuid = missing_puuid.drop(missing_puuid.columns[start_index:end_index + 1], axis=1)
+
+    # do an api call for each of these summonerIds
+    # then append to puuid table in database
+    columns = ["id", "accountId", "puuid", "name", "profileIconId", "revisionDate", "summonerLevel"]
+    new_puuids = pd.DataFrame(columns=columns)
+    for _index, row in missing_puuid.iterrows():
+        api_url = f'https://na1.api.riotgames.com/lol/summoner/v4/summoners/{row["summonerId"]}?api_key={API_KEY}'
+        new_id = fetch_api_call(api_url)
+        new_id = pd.DataFrame(new_id, index=[0])
+        new_puuids = pd.concat([new_puuids, new_id], ignore_index=True)
+    new_puuids.to_sql('puuid_tbl', db_conn, if_exists='append', index=False)
+    return
+
+
+get_list_of_puuid()
 
 def get_match_details(match_id, api_key):
     """
@@ -246,26 +281,12 @@ def get_match_details(match_id, api_key):
     :param api_key:
     :return: dictionary -> match details
     """
-    pass
 
 
-def save_dataframe_to_database(dataframe, table_name, database_url):
-    """
-    saves a dataframe to a postgresql database - duh.
-    :param dataframe:
-    :param table_name:
-    :param database_url:
-    :return: none
-    """
-    # Create a SQLAlchemy engine to connect to the PostgreSQL database
-    engine = create_engine(database_url)
 
-    # Convert the DataFrame to a SQL table and save it to the database
-    dataframe.to_sql(table_name, engine, if_exists='replace', index=False)
 
-    # Optional: Print a success message
-    print("Data saved successfully to the database!")
-    return
+
+
 
 
 
