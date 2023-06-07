@@ -308,26 +308,42 @@ def create_match_id_list():
     :return:
     """
     db_conn = connect_to_database(yaml_dict, "league_db_server", "test_league_db")
-    query = "SELECT puuid, matches_processed, matches_processed_date FROM puuid_tbl WHERE matches_processed = 0"
+    query = "SELECT puuid FROM puuid_tbl"
     puuid_df = execute_query(db_conn, query)
-    query = "SELECT match_id, match_details_processed, match_details_process_date"
+    query = "SELECT match_id FROM match_id_tbl"
     try:
-        match_id_df = execute_query(db_conn, query)
+        match_id_tbl = execute_query(db_conn, query)
 
     except Exception as e:
-        columns = ['matchId', 'matches_processed', 'matches_processed_date']
-        match_id_df = pd.DataFrame(columns=columns)
+        columns = ['match_id']
+        match_id_tbl = pd.DataFrame(columns=columns)
         print(f"An error occurred: {str(e)}")
 
-
+    original_match_id_tbl = match_id_tbl.copy()
+    counter = 0
+    # how many players to go through
+    counter_max = 100
+    start_time = time.time()
     for _index, row in puuid_df.iterrows():
-        api_url = f'https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/{row["puuid"]}/ids?queue=420&start=0&count=100&api_key={API_KEY}'
-        new_matchs = fetch_api_call(api_url)
-        new_matchs = pd.DataFrame({'matchId': new_matchs})
+        counter += 1
+        if counter > counter_max:
+            print(f'finished {counter_max} puuids')
+            break
 
-        rows_to_add = df2[~df2['matchId'].isin(df1['matchId'])]
-        new_match_id_df = pd.concat([df1, rows_to_add])
-        new_match_id_df.reset_index(drop=True, inplace=True)
+        api_url = f'https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/{row["puuid"]}/ids?queue=420&start=0&count=100&api_key={API_KEY}'
+        new_matches = fetch_api_call(api_url)
+        new_matches = pd.DataFrame({'match_id': new_matches})
+
+        rows_to_add = new_matches[~new_matches['match_id'].isin(match_id_tbl['match_id'])]
+        match_id_tbl = pd.concat([match_id_tbl, rows_to_add])
+        match_id_tbl.reset_index(drop=True, inplace=True)
+
+    add_to_tbl = match_id_tbl[~match_id_tbl['match_id'].isin(original_match_id_tbl['match_id'])]
+    add_to_tbl.to_sql('match_id_tbl', db_conn, if_exists='append', index=False)
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print("Elapsed time: {:.2f} seconds".format(elapsed_time))
+    return
 
 
 
