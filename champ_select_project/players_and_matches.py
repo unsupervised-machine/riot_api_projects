@@ -104,7 +104,6 @@ close_all_active_connections()
 def fetch_api_call(api_url):
     response = requests.get(api_url)
     # Handle rate limit (429) errors by waiting and retrying after a delay
-    attempts = 0
     while response.status_code == 429:
         retry_after = int(response.headers.get("Retry-After", 120))
         current_time = datetime.now()
@@ -263,7 +262,7 @@ def get_list_of_puuid():
     end_index = missing_puuid.columns.get_loc('_merge')
     missing_puuid = missing_puuid.drop(missing_puuid.columns[start_index:end_index + 1], axis=1)
     print(f'Total rows that need to be added ' + str(len(missing_puuid)))
-    missing_puuid = missing_puuid.head(10000)
+    # missing_puuid = missing_puuid.head(10000)
     print(f'Total rows that need to be added ' + str(len(missing_puuid)))
     # When adding 10k rows takes about 12,055 seconds or 200 minutes to complete ~ 50 requests per minute
 
@@ -308,27 +307,33 @@ def create_match_id_list():
     :return:
     """
     db_conn = connect_to_database(yaml_dict, "league_db_server", "test_league_db")
-    query = "SELECT puuid, matches_processed, matches_processed_date FROM puuid_tbl WHERE matches_processed = 0"
+    query = "SELECT puuid, match_ids_processed, match_ids_processed_date FROM puuid_tbl WHERE match_ids_processed = 0"
     puuid_df = execute_query(db_conn, query)
-    query = "SELECT match_id, match_details_processed, match_details_process_date"
+    query = "SELECT match_id, match_details_processed, match_details_processed_date FROM match_id_tbl"
     try:
-        match_id_df = execute_query(db_conn, query)
+        match_id_tbl = execute_query(db_conn, query)
 
     except Exception as e:
-        columns = ['matchId', 'matches_processed', 'matches_processed_date']
-        match_id_df = pd.DataFrame(columns=columns)
+        columns = ['match_id', 'match_details_processed', 'match_details_processed_date']
+        match_id_tbl = pd.DataFrame(columns=columns)
         print(f"An error occurred: {str(e)}")
 
-
+    original_match_id_tbl = match_id_tbl.copy()
     for _index, row in puuid_df.iterrows():
         api_url = f'https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/{row["puuid"]}/ids?queue=420&start=0&count=100&api_key={API_KEY}'
-        new_matchs = fetch_api_call(api_url)
-        new_matchs = pd.DataFrame({'matchId': new_matchs})
+        new_matches = fetch_api_call(api_url)
+        new_matches = pd.DataFrame({'match_id': new_matches})
+        # new_matches = new_matches.rename(columns={'matchId': 'match_id'})
 
-        rows_to_add = df2[~df2['matchId'].isin(df1['matchId'])]
-        new_match_id_df = pd.concat([df1, rows_to_add])
-        new_match_id_df.reset_index(drop=True, inplace=True)
+        rows_to_add = new_matches[~new_matches['match_id'].isin(match_id_tbl['match_id'])]
+        match_id_tbl = pd.concat([match_id_tbl, rows_to_add])
+        match_id_tbl.reset_index(drop=True, inplace=True)
 
+    add_to_tbl = match_id_tbl[~match_id_tbl['match_id'].isin(original_match_id_tbl['match_id'])]
+    add_to_tbl['match_details_processed'] = 0
+    add_to_tbl['match_details_processed_date'] = np.nan
+    add_to_tbl.to_sql('match_id_tbl', db_conn, if_exists='append', index=False)
+    return
 
 
 def get_match_details(match_id, api_key):
