@@ -2,6 +2,7 @@ import random
 import requests
 import yaml
 import time
+from datetime import datetime
 import pandas as pd
 from sqlalchemy import create_engine, text
 
@@ -103,9 +104,13 @@ close_all_active_connections()
 def fetch_api_call(api_url):
     response = requests.get(api_url)
     # Handle rate limit (429) errors by waiting and retrying after a delay
-    if response.status_code == 429:
-        print('Waiting due to rate limit...')
-        time.sleep(20)
+    attempts = 0
+    while response.status_code == 429:
+        retry_after = int(response.headers.get("Retry-After", 120))
+        current_time = datetime.now()
+        print(f'Waiting due to rate limit... Current time: {current_time}')
+        time.sleep(retry_after)
+        response = requests.get(api_url)
     # Parse the JSON response into match data and store it in the dictionary
     data = response.json()
     return data
@@ -134,38 +139,37 @@ def get_leagues(api_key=API_KEY, region='na1', queue_type='RANKED_SOLO_5x5', tie
 ################################ START Testing Pulling Match Ids ###################################################
 ####################################################################################################################
 
-# read the puuid database table if it exists
-# convert it to dataframe
-# call the new data from riot api
-# convert it to dataframe
-# merge to find only new puuids
-# add these entries to the table
-
-# pull from api
-
-from_api = get_leagues(api_key=API_KEY, region='na1', queue_type='RANKED_SOLO_5x5', tier='DIAMOND', divison='I', page='1')
-from_api = pd.DataFrame(from_api)
-from_api = from_api.drop('miniSeries', axis=1)
-if 'miniSeries' in from_api.columns:
-    from_api = from_api.drop('miniSeries', axis=1)
-
-# reads from database table
-db_conn = connect_to_database(yaml_dict, "league_db_server", "test_league_db")
-query = "SELECT * FROM players_tbl"
-from_db = execute_query(db_conn, query)
-
-# use this as an example of things I can do with database
-# finds all rows not already in the database
-merged = from_api.merge(from_db, on='summonerId', how='left', indicator=True, suffixes=('', '_df2'))
-# remove rows that are found in right table
-rows_only_in_api = merged[merged['_merge'] == 'left_only']
-# remove extra set of columns
-start_index = rows_only_in_api.columns.get_loc('leagueId_df2')
-end_index = rows_only_in_api.columns.get_loc('_merge')
-rows_only_in_api = rows_only_in_api.drop(rows_only_in_api.columns[start_index:end_index+1], axis=1)
-
-# add these new rows to the database table
-rows_only_in_api.to_sql('players_tbl', db_conn, if_exists='append', index=False)
+# # read the puuid database table if it exists
+# # convert it to dataframe
+# # call the new data from riot api
+# # convert it to dataframe
+# # merge to find only new puuids
+# # add these entries to the table
+#
+#
+# from_api = get_leagues(api_key=API_KEY, region='na1', queue_type='RANKED_SOLO_5x5', tier='DIAMOND', divison='I', page='1')
+# from_api = pd.DataFrame(from_api)
+# from_api = from_api.drop('miniSeries', axis=1)
+# if 'miniSeries' in from_api.columns:
+#     from_api = from_api.drop('miniSeries', axis=1)
+#
+# # reads from database table
+# db_conn = connect_to_database(yaml_dict, "league_db_server", "test_league_db")
+# query = "SELECT * FROM players_tbl"
+# from_db = execute_query(db_conn, query)
+#
+# # use this as an example of things I can do with database
+# # finds all rows not already in the database
+# merged = from_api.merge(from_db, on='summonerId', how='left', indicator=True, suffixes=('', '_df2'))
+# # remove rows that are found in right table
+# rows_only_in_api = merged[merged['_merge'] == 'left_only']
+# # remove extra set of columns
+# start_index = rows_only_in_api.columns.get_loc('leagueId_df2')
+# end_index = rows_only_in_api.columns.get_loc('_merge')
+# rows_only_in_api = rows_only_in_api.drop(rows_only_in_api.columns[start_index:end_index+1], axis=1)
+#
+# # add these new rows to the database table
+# rows_only_in_api.to_sql('players_tbl', db_conn, if_exists='append', index=False)
 
 ####################################################################################################################
 ############################## END Testing Pulling Match Ids##########################################################
@@ -226,7 +230,7 @@ def create_player_list():
     return
 
 
-create_player_list()
+# create_player_list()
 
 
 
@@ -258,21 +262,74 @@ def get_list_of_puuid():
     start_index = missing_puuid.columns.get_loc('id')
     end_index = missing_puuid.columns.get_loc('_merge')
     missing_puuid = missing_puuid.drop(missing_puuid.columns[start_index:end_index + 1], axis=1)
+    print(f'Total rows that need to be added ' + str(len(missing_puuid)))
+    missing_puuid = missing_puuid.head(10000)
+    print(f'Total rows that need to be added ' + str(len(missing_puuid)))
+    # When adding 10k rows takes about 12,055 seconds or 200 minutes to complete ~ 50 requests per minute
 
     # do an api call for each of these summonerIds
     # then append to puuid table in database
+    start_time = time.time()
     columns = ["id", "accountId", "puuid", "name", "profileIconId", "revisionDate", "summonerLevel"]
     new_puuids = pd.DataFrame(columns=columns)
     for _index, row in missing_puuid.iterrows():
+        # TODO handle failed api call and just continue to next
         api_url = f'https://na1.api.riotgames.com/lol/summoner/v4/summoners/{row["summonerId"]}?api_key={API_KEY}'
         new_id = fetch_api_call(api_url)
         new_id = pd.DataFrame(new_id, index=[0])
         new_puuids = pd.concat([new_puuids, new_id], ignore_index=True)
+
     new_puuids.to_sql('puuid_tbl', db_conn, if_exists='append', index=False)
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print("Elapsed time: {:.2f} seconds".format(elapsed_time))
     return
 
 
 get_list_of_puuid()
+
+# TODO
+# Add 2 column to puuid_tbl, update them while running through create_match_id
+#       - 'match_history_processed' default value 0, if they have been through create_match_id_list() then change to 1
+#       - 'match_history_process_date' default value null, if they have ever been processed, record the most recent time
+#   add this after we get all 25k puuids
+
+
+def create_match_id_list():
+    """
+    puuid_tbl (must exist in db)
+    match_id (can  create it doesn't exist)
+
+    grab puuid list from db that has not already been processed
+    from puuid ask api for 100 match_ids from match history
+
+    check the 100 match ids if they are already in the match_id db tbl
+    add new ones to the match_ids tbl
+    :return:
+    """
+    db_conn = connect_to_database(yaml_dict, "league_db_server", "test_league_db")
+    query = "SELECT puuid, matches_processed, matches_processed_date FROM puuid_tbl WHERE matches_processed = 0"
+    puuid_df = execute_query(db_conn, query)
+    query = "SELECT match_id, match_details_processed, match_details_process_date"
+    try:
+        match_id_df = execute_query(db_conn, query)
+
+    except Exception as e:
+        columns = ['matchId', 'matches_processed', 'matches_processed_date']
+        match_id_df = pd.DataFrame(columns=columns)
+        print(f"An error occurred: {str(e)}")
+
+
+    for _index, row in puuid_df.iterrows():
+        api_url = f'https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/{row["puuid"]}/ids?queue=420&start=0&count=100&api_key={API_KEY}'
+        new_matchs = fetch_api_call(api_url)
+        new_matchs = pd.DataFrame({'matchId': new_matchs})
+
+        rows_to_add = df2[~df2['matchId'].isin(df1['matchId'])]
+        new_match_id_df = pd.concat([df1, rows_to_add])
+        new_match_id_df.reset_index(drop=True, inplace=True)
+
+
 
 def get_match_details(match_id, api_key):
     """
@@ -281,6 +338,7 @@ def get_match_details(match_id, api_key):
     :param api_key:
     :return: dictionary -> match details
     """
+
 
 
 
