@@ -5,6 +5,9 @@ import time
 from datetime import datetime
 import pandas as pd
 from sqlalchemy import create_engine, text
+import numpy as np
+
+from sqlalchemy import update
 
 yaml_file = 'champ_select_project/secrets.yml'
 with open(yaml_file, 'r') as file:
@@ -201,6 +204,9 @@ def create_player_list():
                 start_index = rows_only_in_api.columns.get_loc('leagueId_df2')
                 end_index = rows_only_in_api.columns.get_loc('_merge')
                 rows_only_in_api = rows_only_in_api.drop(rows_only_in_api.columns[start_index:end_index + 1], axis=1)
+                # add processed and processed date columns
+                rows_only_in_api['player_puuid_processed'] = False
+                rows_only_in_api['player_puuid_processed_date'] = None
                 # Save to db
                 rows_only_in_api.to_sql('players_tbl', db_conn, if_exists='append', index=False)
         else:
@@ -224,6 +230,9 @@ def create_player_list():
             start_index = rows_only_in_api.columns.get_loc('leagueId_df2')
             end_index = rows_only_in_api.columns.get_loc('_merge')
             rows_only_in_api = rows_only_in_api.drop(rows_only_in_api.columns[start_index:end_index + 1], axis=1)
+            # add processed and processed date columns
+            rows_only_in_api['player_puuid_processed'] = False
+            rows_only_in_api['player_puuid_processed_date'] = None
             # Save to db
             rows_only_in_api.to_sql('players_tbl', db_conn, if_exists='append', index=False)
     return
@@ -245,18 +254,18 @@ def get_list_of_puuid():
     # (make sure to rename id to summoner id before saving to db)
     db_conn = connect_to_database(yaml_dict, "league_db_server", "test_league_db")
     query = "SELECT * FROM players_tbl"
-    player_list_df = execute_query(db_conn, query)
+    player_tbl = execute_query(db_conn, query)
     query = "select * from puuid_tbl"
     try:
         puuid_df = execute_query(db_conn, query)
 
     except Exception as e:
-        columns = ["id", "accountId", "puuid", "name", "profileIconId", "revisionDate", "summonerLevel"]
+        columns = ["id", "accountId", "puuid", "name", "profileIconId", "revisionDate", "summonerLevel", 'match_ids_processed', 'match_ids_processed_date']
         puuid_df = pd.DataFrame(columns=columns)
         print(f"An error occurred: {str(e)}")
 
-    # find all the entries in player_test_table that dont have a corresponding entry in puuid table
-    missing_puuid = pd.merge(player_list_df, puuid_df, left_on='summonerId', right_on='id', how='left', indicator=True, suffixes=('', '_df2'))
+    # find all the entries in player_table that dont have a corresponding entry in puuid table
+    missing_puuid = pd.merge(player_tbl, puuid_df, left_on='summonerId', right_on='id', how='left', indicator=True, suffixes=('', '_df2'))
     missing_puuid = missing_puuid[missing_puuid['_merge'] == 'left_only']
     start_index = missing_puuid.columns.get_loc('id')
     end_index = missing_puuid.columns.get_loc('_merge')
@@ -278,14 +287,28 @@ def get_list_of_puuid():
         new_id = pd.DataFrame(new_id, index=[0])
         new_puuids = pd.concat([new_puuids, new_id], ignore_index=True)
 
+    # add processed and processed date columns
+    new_puuids['match_ids_processed'] = False
+    new_puuids['match_ids_processed_date'] = None
     new_puuids.to_sql('puuid_tbl', db_conn, if_exists='append', index=False)
+
+    # update processed columns in players_tbl
+    update_player_table_columns = missing_puuid['summonerId', 'player_puuid_processed', 'player_puuid_processed_date']
+
+
+
+
+
+
+
+
     end_time = time.time()
     elapsed_time = end_time - start_time
     print("Elapsed time: {:.2f} seconds".format(elapsed_time))
     return
 
 
-get_list_of_puuid()
+# get_list_of_puuid()
 
 # TODO
 # Add 2 column to puuid_tbl, update them while running through create_match_id
@@ -319,7 +342,15 @@ def create_match_id_list():
         print(f"An error occurred: {str(e)}")
 
     original_match_id_tbl = match_id_tbl.copy()
+    counter = 0
+    counter_max = 100
+    start_time = time.time()
     for _index, row in puuid_df.iterrows():
+        counter += 1
+        if counter > counter_max:
+            print(f'finished {counter_max} puuids')
+            break
+
         api_url = f'https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/{row["puuid"]}/ids?queue=420&start=0&count=100&api_key={API_KEY}'
         new_matches = fetch_api_call(api_url)
         new_matches = pd.DataFrame({'match_id': new_matches})
@@ -330,10 +361,24 @@ def create_match_id_list():
         match_id_tbl.reset_index(drop=True, inplace=True)
 
     add_to_tbl = match_id_tbl[~match_id_tbl['match_id'].isin(original_match_id_tbl['match_id'])]
-    add_to_tbl['match_details_processed'] = 0
-    add_to_tbl['match_details_processed_date'] = np.nan
+    add_to_tbl['match_details_processed'] = False
+    add_to_tbl['match_details_processed_date'] = None
     add_to_tbl.to_sql('match_id_tbl', db_conn, if_exists='append', index=False)
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print("Elapsed time: {:.2f} seconds".format(elapsed_time))
     return
+
+
+create_match_id_list()
+
+
+# TODO
+# 1. Add processed info to players column. DONE
+# 4. add processed info to puuids column
+# 2. update processed info in players column when getting puuids
+# 3. update processed info in puuid column when getting matches info
+
 
 
 def get_match_details(match_id, api_key):
