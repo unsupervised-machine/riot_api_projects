@@ -286,13 +286,7 @@ def get_list_of_puuid():
     return
 
 
-get_list_of_puuid()
-
-# TODO
-# Add 2 column to puuid_tbl, update them while running through create_match_id
-#       - 'match_history_processed' default value 0, if they have been through create_match_id_list() then change to 1
-#       - 'match_history_process_date' default value null, if they have ever been processed, record the most recent time
-#   add this after we get all 25k puuids
+# get_list_of_puuid()
 
 
 def create_match_id_list():
@@ -320,15 +314,15 @@ def create_match_id_list():
         print(f"An error occurred: {str(e)}")
 
     original_match_id_tbl = match_id_tbl.copy()
-    counter = 0
+    # counter = 0
     # how many players to go through
-    counter_max = 100
+    # counter_max = 200
     start_time = time.time()
     for _index, row in puuid_df.iterrows():
-        counter += 1
-        if counter > counter_max:
-            print(f'finished {counter_max} puuids')
-            break
+        # counter += 1
+        # if counter > counter_max:
+        #     print(f'finished {counter_max} puuids')
+        #     break
 
         api_url = f'https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/{row["puuid"]}/ids?queue=420&start=0&count=100&api_key={API_KEY}'
         new_matches = fetch_api_call(api_url)
@@ -345,16 +339,84 @@ def create_match_id_list():
     print("Elapsed time: {:.2f} seconds".format(elapsed_time))
     return
 
+# create_match_id_list()
+
+# db_conn = connect_to_database(yaml_dict, "league_db_server", "test_league_db")
+# query = "SELECT match_id FROM match_id_tbl"
+# match_ids_from_match_id_tbl = execute_query(db_conn, query)
+# columns = ['match_id']
+# match_ids_from_champ_select_details_tbl = pd.DataFrame(columns=columns)
+# left_join = pd.merge(match_ids_from_match_id_tbl, match_ids_from_champ_select_details_tbl, how='left', indicator=True)
+# new_match_ids = left_join[left_join['_merge'] == 'left_only'].drop('_merge', axis=1)
+#
+#
 
 
-def get_match_details(match_id, api_key):
+
+def create_champion_select_details():
     """
-    produces the details of a specific match
-    :param match_id:
-    :param api_key:
-    :return: dictionary -> match details
     """
+    db_conn = connect_to_database(yaml_dict, "league_db_server", "test_league_db")
+    query = "SELECT match_id FROM match_id_tbl"
+    match_ids_from_match_id_tbl = execute_query(db_conn, query)
+    query = "SELECT match_id FROM champion_select_details_tbl"
+    try:
+       match_ids_from_champ_select_details_tbl  = execute_query(db_conn, query)
 
+    except Exception as e:
+        columns = ['match_id']
+        match_ids_from_champ_select_details_tbl = pd.DataFrame(columns=columns)
+        print(f"An error occurred: {str(e)}")
+
+    left_join = pd.merge(match_ids_from_match_id_tbl, match_ids_from_champ_select_details_tbl, how='left', indicator=True)
+    new_match_ids = left_join[left_join['_merge'] == 'left_only'].drop('_merge', axis=1)
+    # we have a list of match_ids that have not been used before
+    print(new_match_ids)
+
+    counter = 0
+    counter_max = 20000
+    # counter_max = 100
+    new_list = []
+    for _index, row in new_match_ids.iterrows():
+        if counter > counter_max:
+            print(f'finished {counter_max} match_ids')
+            break
+        counter += 1
+
+        match_id = row['match_id']
+        api_url = f'https://americas.api.riotgames.com/lol/match/v5/matches/{match_id}?api_key={API_KEY}'
+        match_details_json = fetch_api_call(api_url)
+
+        for participant_info in match_details_json['info']['participants']:
+            # match_id = match_details_json['metadata']['matchId']
+            team_id = participant_info['teamId']
+            champion_id = participant_info['championId']
+            champion_name = participant_info['championName']
+            # print(champion_name)
+            lane_id_1 = participant_info['individualPosition']
+            lane_id_2 = participant_info['teamPosition']
+            # lane_id_3 = participant_info['challenges']['playedChampSelectPosition']
+            win = participant_info['win']
+
+            row_data = {
+                'match_id': match_id,
+                'team_id': team_id,
+                'champion_id': champion_id,
+                'champion_name': champion_name,
+                'lane_id_1': lane_id_1,
+                'lane_id_2': lane_id_2,
+                # 'lane_id_3': lane_id_3,
+                'win': win
+            }
+
+            new_list.append(row_data)
+
+    new_df = pd.DataFrame(new_list)
+    new_df.to_sql('champion_select_details_tbl', db_conn, if_exists='append', index=False)
+    return
+
+
+create_champion_select_details()
 
 
 
