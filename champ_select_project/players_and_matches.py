@@ -356,7 +356,7 @@ def create_champion_select_details():
     new_df.to_sql('champion_select_details_tbl', db_conn, if_exists='append', index=False)
     return
 
-
+create_champion_select_details()
 
 
 
