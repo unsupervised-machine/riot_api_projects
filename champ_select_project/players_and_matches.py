@@ -315,8 +315,9 @@ def create_champion_select_details():
     print(new_match_ids)
 
     counter = 0
-    counter_max = 20000
+    # counter_max = 20000
     # counter_max = 100
+    counter_max = 1000
     new_list = []
     for _index, row in new_match_ids.iterrows():
         if counter > counter_max:
@@ -356,11 +357,12 @@ def create_champion_select_details():
     new_df.to_sql('champion_select_details_tbl', db_conn, if_exists='append', index=False)
     return
 
-create_champion_select_details()
+# create_champion_select_details()
 
 
-
-
+for i in range(100):
+    print('in loop', i)
+    create_champion_select_details()
 
 
 

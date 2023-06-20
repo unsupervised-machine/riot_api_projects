@@ -19,6 +19,12 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 import xgboost as xgb
 from sklearn.metrics import accuracy_score
 
+# need to install these (wait til other scripts are done running)
+# from tensorflow.keras.models import Sequential
+# from tensorflow.keras.layers import Dense
+# from tensorflow.keras.optimizers import Adam
+
+
 yaml_file = 'champ_select_project/secrets.yml'
 with open(yaml_file, 'r') as file:
     yaml_dict = yaml.safe_load(file)
@@ -140,6 +146,19 @@ df_encoded[bool_columns] = df_encoded[bool_columns].astype(int)
 df = df_encoded
 
 
+# super sparse matrix
+    # sk learn tools
+
+# signal to noise ratio
+
+
+# neural network
+    # embeddings
+    # optimal embedding depth
+
+
+
+
 # remove intermediate dataframes and objs from memory
 del df_pivot, missing_data, non_matching_lanes, df_encoded
 del conditions, values, values_2, new_column_names, non_matching_games, bool_columns, columns_to_encode
@@ -160,7 +179,8 @@ models = [
     {'model': DecisionTreeClassifier(), 'params': {'max_depth': [None, 5, 10], 'min_samples_split': [2, 5, 10]}},
     {'model': RandomForestClassifier(), 'params': {'n_estimators': [100, 200, 300], 'max_depth': [None, 5, 10]}},
     {'model': GradientBoostingClassifier(), 'params': {'n_estimators': [100, 200, 300], 'learning_rate': [0.01, 0.1, 1.0]}},
-    {'model': xgb.XGBClassifier(), 'params': {'n_estimators': [100, 200, 300], 'learning_rate': [0.01, 0.1, 1.0]}}
+    {'model': xgb.XGBClassifier(), 'params': {'n_estimators': [100, 200, 300], 'learning_rate': [0.01, 0.1, 1.0]}},
+    {'model': Sequential(), 'params': {'hidden_layers': [(64,), (128,), (64, 32)], 'activation': ['relu', 'sigmoid'], 'lr': [0.001, 0.01, 0.1]}}
 ]
 
 best_accuracy = 0.0
@@ -175,9 +195,22 @@ for model_info in models:
 
     # Loop over each combination of hyperparameters
     for param_combination in ParameterGrid(params):
-        model.set_params(**param_combination)
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
+        if isinstance(model, Sequential):
+            hidden_layers = param_combination['hidden_layers']
+            activation = param_combination['activation']
+            lr = param_combination['lr']
+
+            model = Sequential()
+            model.add(Dense(hidden_layers[0], activation=activation, input_shape=(X_train.shape[1],)))
+            for layer_units in hidden_layers[1:]:
+                model.add(Dense(layer_units, activation=activation))
+            model.add(Dense(1, activation='sigmoid'))
+            model.compile(loss='binary_crossentropy', optimizer=Adam(lr=lr), metrics=['accuracy'])
+        else:
+            model.set_params(**param_combination)
+
+        model.fit(X_train, y_train, epochs=10, batch_size=32, verbose=0)
+        y_pred = model.predict_classes(X_test)
         accuracy = accuracy_score(y_test, y_pred)
 
         print("Model: ", model)
