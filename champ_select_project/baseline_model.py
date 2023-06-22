@@ -114,6 +114,10 @@ df = df.drop('lane_id_2', axis=1)
 missing_data = df[df.isnull().any(axis=1)]
 print("Number of rows with any missing data: ", len(missing_data))
 
+
+# there are Latin america games:
+# list how many, remove them
+
 # Are the data types appropriate?
 # yes
 df.dtypes
@@ -126,87 +130,58 @@ conditions = [
 values = [True]
 values_2 = [False]
 df['team_1_win'] = np.select(conditions, values, default=False)
-df['team_2_win'] = np.select(conditions, values_2, default=True)
+# df['team_2_win'] = np.select(conditions, values_2, default=True)
+df['winner'] = np.where(df['team_1_win'], "Red", "Blue")
+df = df.drop(['team_1_win', 'win'], axis=1)
 
 
 # Let's pivot the data for ML purposes now
-df_pivot = df.pivot(index='match_id', columns=['team_id', 'lane_id_1'], values=['champion_name'])
-df_pivot['team_1_win'] = df.groupby('match_id')['team_1_win'].first()
-df_pivot['team_2_win'] = df.groupby('match_id')['team_2_win'].first()
-# rename the pivoted columns to be descriptive
-new_column_names = ['team_1_top', 'team_1_jng', 'team_1_mid', 'team_1_adc', 'team_1_sup',
-                    'team_2_top', 'team_2_jng', 'team_2_mid', 'team_2_adc', 'team_2_sup',
-                    'team_1_win', 'team_2_win']
-df_pivot.columns = new_column_names
+df_pivot = df.pivot( index=['match_id'], columns=['team_id', 'lane_id_1'], values=['champion_name'])
+match_winner_data = df[['match_id', 'winner']].groupby('match_id').first().reset_index()
+
+# df_pivot_copy = df_pivot.copy()
+# df_pivot = df_pivot_copy.copy()
+# df_pivot.columns
+
+original_columns = df_pivot.columns
+for i, column in enumerate(df_pivot.columns):
+    # print(i)
+    # print(column)
+    new_column_name_0 = f'champion_{i}'
+    df_pivot.insert((i+1)*3, new_column_name_0, df_pivot[column])
+
+    new_column_name_1 = f'team_{i}'
+    df_pivot.insert((i+1)*3+1, new_column_name_1, column[1])
+
+    new_column_name_2 = f'lane_{i}'
+    df_pivot.insert((i+1)*3+2, new_column_name_2, column[2])
+
+df_pivot = df_pivot.drop(original_columns, axis=1)
+
+df_pivot.columns = df_pivot.columns.droplevel(level=[1, 2])
+df_pivot = df_pivot.reset_index()
+
+df_pivot = df_pivot.merge(match_winner_data, 'left', on='match_id')
 df = df_pivot
 
 
 # Since the champion columns are not numeric we should one hot encode them
-columns_to_encode = df.columns[0:10]
+columns_to_encode = df.columns[1:31]
 df_encoded = pd.get_dummies(df, columns=columns_to_encode)
 bool_columns = df_encoded.select_dtypes(include=bool).columns
 df_encoded[bool_columns] = df_encoded[bool_columns].astype(int)
 df = df_encoded
 
-
-
-
-
-# implement variance threshold feature selection to deal with the sparse data
-selector = VarianceThreshold(threshold=0.01)
-selected_features = selector.fit_transform(df)
-
-selected_feature_names = df.columns[selector.get_support()]
-
-# went from 1300 features to 315
-selected_df = pd.DataFrame(selected_features, columns=selected_feature_names)
-
-df = selected_df
-
-# Calculate the total number of cells in the DataFrame
-total_cells = df.size
-
-# Calculate the number of missing or null values in the DataFrame
-missing_cells = (df == 0).sum().sum()
-
-# Calculate the sparsity percentage
-sparsity = (missing_cells / total_cells) * 100
-
-# Print the sparsity percentage
-# still too sparse
-print(f"Sparsity: {sparsity}%")
-
-
-
-
-
-
-
 # implement embedding
-
-
-
-
-
-
-
-
-
-
-
-
 
 # super sparse matrix
     # sk learn tools
 
 # signal to noise ratio
 
-
 # neural network
     # embeddings
     # optimal embedding depth
-
-
 
 
 # remove intermediate dataframes and objs from memory
@@ -218,8 +193,8 @@ gc.collect()
 
 # Let's start doing some ML stuff
 # Create test and train set ( also create holdout set )
-X = df.drop(['team_1_win', 'team_2_win'], axis=1)
-y = df['team_1_win']
+X = df.drop(['winner', 'match_id'], axis=1)
+y = df['winner']
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 X_train, X_holdout, y_train, y_holdout = train_test_split(X_train, y_train, test_size=0.1, random_state=42)
 
