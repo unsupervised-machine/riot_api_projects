@@ -19,6 +19,8 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 import xgboost as xgb
 from sklearn.metrics import accuracy_score
 
+
+
 from sklearn.feature_selection import VarianceThreshold
 
 
@@ -139,8 +141,8 @@ df = df.drop(['team_1_win', 'win'], axis=1)
 df_pivot = df.pivot( index=['match_id'], columns=['team_id', 'lane_id_1'], values=['champion_name'])
 match_winner_data = df[['match_id', 'winner']].groupby('match_id').first().reset_index()
 
-# df_pivot_copy = df_pivot.copy()
-# df_pivot = df_pivot_copy.copy()
+df_pivot_copy = df_pivot.copy()
+df_pivot = df_pivot_copy.copy()
 # df_pivot.columns
 
 original_columns = df_pivot.columns
@@ -161,16 +163,98 @@ df_pivot = df_pivot.drop(original_columns, axis=1)
 df_pivot.columns = df_pivot.columns.droplevel(level=[1, 2])
 df_pivot = df_pivot.reset_index()
 
+
+# df_pivot.columns = df_pivot.columns.droplevel(level=[1, 2])
 df_pivot = df_pivot.merge(match_winner_data, 'left', on='match_id')
 df = df_pivot
 
 
-# Since the champion columns are not numeric we should one hot encode them
-columns_to_encode = df.columns[1:31]
-df_encoded = pd.get_dummies(df, columns=columns_to_encode)
-bool_columns = df_encoded.select_dtypes(include=bool).columns
-df_encoded[bool_columns] = df_encoded[bool_columns].astype(int)
-df = df_encoded
+# # Since the champion columns are not numeric we should one hot encode them
+# columns_to_encode = df.columns[1:31]
+# df_encoded = pd.get_dummies(df, columns=columns_to_encode)
+# bool_columns = df_encoded.select_dtypes(include=bool).columns
+# df_encoded[bool_columns] = df_encoded[bool_columns].astype(int)
+# df = df_encoded
+
+
+# neural net stuff
+import tensorflow as tf
+from sklearn import preprocessing
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+
+features = df.columns[1:31].tolist()
+target = 'winner'
+
+# Encode categorical features
+
+one_hot_encoder = preprocessing.OneHotEncoder(categories='auto', sparse_output=False, handle_unknown='infrequent_if_exist',
+                                              min_frequency=0.01)
+encoded_features = one_hot_encoder.fit_transform(df[features])
+feature_names = one_hot_encoder.get_feature_names_out(features)
+df_encoded = pd.DataFrame(encoded_features, columns=feature_names)
+df = pd.concat([df[target], df_encoded], axis=1)
+
+
+label_binarizer = preprocessing.LabelBinarizer()
+df[target] = label_binarizer.fit_transform(df[target])
+
+# Split the data into training and testing sets
+features = df.drop(['winner'], axis=1).columns.tolist()
+target = 'winner'
+
+
+X = df[features]
+y = df[target]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+
+# Create the neural network model
+model = Sequential()
+model.add(Dense(32, activation='relu', input_dim=len(features)))
+model.add(Dense(16, activation='relu'))
+model.add(Dense(1, activation='sigmoid'))
+
+# Compile the model
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+# Train the model
+model.fit(X_train, y_train, epochs=10, batch_size=32, verbose=1)
+
+# Evaluate the model
+loss, accuracy = model.evaluate(X_test, y_test)
+print(f"Test loss: {loss:.4f}")
+print(f"Test accuracy: {accuracy:.4f}")
+
+# Make predictions on new data
+new_data = pd.DataFrame([['LA1_1316312345', 'Fizz', 100, 'TOP', 'Lee Sin', 100, 'JUNGLE',
+                          'Syndra', 100, 'MIDDLE', 'Ezreal', 100, 'BOTTOM', 'Alistar', 100, 'UTILITY',
+                          'Darius', 200, 'TOP', 'Kha'Zix', 200, 'JUNGLE', 'Zoe', 200, 'MIDDLE',
+                          'Sivir', 200, 'BOTTOM', 'Morgana', 200, 'UTILITY']],
+                        columns=features)
+
+new_data[features] = label_encoder.transform(new_data[features])
+predictions = model.predict(new_data)
+predicted_winner = label_encoder.inverse_transform([int(predictions[0])])[0]
+print(f"Predicted winner: {predicted_winner}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # implement embedding
 
@@ -182,12 +266,6 @@ df = df_encoded
 # neural network
     # embeddings
     # optimal embedding depth
-
-
-# remove intermediate dataframes and objs from memory
-del df_pivot, missing_data, non_matching_lanes, df_encoded
-del conditions, values, values_2, new_column_names, non_matching_games, bool_columns, columns_to_encode
-gc.collect()
 
 
 
