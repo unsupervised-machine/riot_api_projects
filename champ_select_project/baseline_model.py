@@ -19,6 +19,9 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 import xgboost as xgb
 from sklearn.metrics import accuracy_score
 
+from sklearn.feature_selection import VarianceThreshold
+
+
 # need to install these (wait til other scripts are done running)
 # from tensorflow.keras.models import Sequential
 # from tensorflow.keras.layers import Dense
@@ -146,6 +149,53 @@ df_encoded[bool_columns] = df_encoded[bool_columns].astype(int)
 df = df_encoded
 
 
+
+
+
+# implement variance threshold feature selection to deal with the sparse data
+selector = VarianceThreshold(threshold=0.01)
+selected_features = selector.fit_transform(df)
+
+selected_feature_names = df.columns[selector.get_support()]
+
+# went from 1300 features to 315
+selected_df = pd.DataFrame(selected_features, columns=selected_feature_names)
+
+df = selected_df
+
+# Calculate the total number of cells in the DataFrame
+total_cells = df.size
+
+# Calculate the number of missing or null values in the DataFrame
+missing_cells = (df == 0).sum().sum()
+
+# Calculate the sparsity percentage
+sparsity = (missing_cells / total_cells) * 100
+
+# Print the sparsity percentage
+# still too sparse
+print(f"Sparsity: {sparsity}%")
+
+
+
+
+
+
+
+# implement embedding
+
+
+
+
+
+
+
+
+
+
+
+
+
 # super sparse matrix
     # sk learn tools
 
@@ -165,6 +215,7 @@ del conditions, values, values_2, new_column_names, non_matching_games, bool_col
 gc.collect()
 
 
+
 # Let's start doing some ML stuff
 # Create test and train set ( also create holdout set )
 X = df.drop(['team_1_win', 'team_2_win'], axis=1)
@@ -180,7 +231,7 @@ models = [
     {'model': RandomForestClassifier(), 'params': {'n_estimators': [100, 200, 300], 'max_depth': [None, 5, 10]}},
     {'model': GradientBoostingClassifier(), 'params': {'n_estimators': [100, 200, 300], 'learning_rate': [0.01, 0.1, 1.0]}},
     {'model': xgb.XGBClassifier(), 'params': {'n_estimators': [100, 200, 300], 'learning_rate': [0.01, 0.1, 1.0]}},
-    {'model': Sequential(), 'params': {'hidden_layers': [(64,), (128,), (64, 32)], 'activation': ['relu', 'sigmoid'], 'lr': [0.001, 0.01, 0.1]}}
+    # {'model': Sequential(), 'params': {'hidden_layers': [(64,), (128,), (64, 32)], 'activation': ['relu', 'sigmoid'], 'lr': [0.001, 0.01, 0.1]}}
 ]
 
 best_accuracy = 0.0
@@ -195,22 +246,9 @@ for model_info in models:
 
     # Loop over each combination of hyperparameters
     for param_combination in ParameterGrid(params):
-        if isinstance(model, Sequential):
-            hidden_layers = param_combination['hidden_layers']
-            activation = param_combination['activation']
-            lr = param_combination['lr']
-
-            model = Sequential()
-            model.add(Dense(hidden_layers[0], activation=activation, input_shape=(X_train.shape[1],)))
-            for layer_units in hidden_layers[1:]:
-                model.add(Dense(layer_units, activation=activation))
-            model.add(Dense(1, activation='sigmoid'))
-            model.compile(loss='binary_crossentropy', optimizer=Adam(lr=lr), metrics=['accuracy'])
-        else:
-            model.set_params(**param_combination)
-
-        model.fit(X_train, y_train, epochs=10, batch_size=32, verbose=0)
-        y_pred = model.predict_classes(X_test)
+        model.set_params(**param_combination)
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
         accuracy = accuracy_score(y_test, y_pred)
 
         print("Model: ", model)
