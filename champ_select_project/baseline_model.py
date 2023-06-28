@@ -128,48 +128,57 @@ df = df.drop('lane_id_2', axis=1)
 # yes
 # df.dtypes
 
+class_labels = {
+    1: "engange_tank",
+    2: "adc",
+    3: "apc",
+    4: "adfighter",
+    5: "apfighter",
+    6: "enchanter",
+    7: "assassins",
+    8: "adpoke",
+    9: "ap_poke"
+}
+champion_id_to_class = {
+    1: 3, 2: 4, 3: 1, 4: 9, 5: 4, 6: 4, 7: 7, 8: 3, 9: 1, 10: 2, 11: 7, 12: 1, 13: 3, 14: 1, 15: 2, 16: 6, 17: 9,
+    18: 2, 19: 4, 20: 1, 21: 2, 22: 8, 23: 4, 24: 4, 25: 9, 26: 6, 27: 1, 28: 7, 29: 2, 30: 3, 31: 1, 32: 1, 33: 1,
+    34: 3, 35: 7, 36: 1, 37: 6, 38: 5, 39: 4, 40: 6, 41: 8, 42: 9, 43: 9, 44: 6, 45: 3, 48: 4, 50: 5, 51: 2, 53: 1,
+    54: 1, 55: 5, 56: 4, 57: 9, 58: 4, 59: 1, 60: 5, 61: 3, 62: 1, 63: 3, 64: 4, 67: 2, 68: 5, 69: 3, 72: 1, 74: 3,
+    75: 4, 76: 9, 77: 4, 78: 1, 79: 1, 80: 4, 81: 8, 82: 5, 83: 4, 84: 5, 85: 1, 86: 4, 89: 1, 90: 3, 91: 7, 92: 4,
+    96: 2, 98: 1, 99: 9, 101: 9, 102: 9, 103: 3, 104: 2, 105: 8, 106: 4, 107: 4, 110: 8, 111: 1, 112: 3, 113: 1,
+    114: 4, 115: 9, 117: 6, 119: 2, 120: 1, 121: 7, 122: 4, 126: 8, 127:1, 131: 1, 133: 2, 134: 3, 136: 5, 141: 4, 142: 9,
+    143: 9, 145: 9, 147: 6, 150: 1, 154: 1, 157: 4, 161: 9, 163: 3, 164: 4, 166: 2, 201: 1, 202: 2, 203: 2, 221: 2,
+    222: 2, 223: 1, 234: 4, 235: 2, 236:2, 238: 7, 240: 4, 245: 7, 246: 7, 254: 4, 266:3, 267: 6, 268:3,  350: 6, 360: 2,
+    412: 1, 421: 4, 427: 6, 429: 2, 420: 4, 421: 4, 429: 2, 432:5, 497:1, 498:2, 526: 1, 516:1, 518: 3, 555: 7, 517: 5,
+    523: 2, 518: 3, 555: 7, 526: 1, 555: 7, 711:3, 777:4, 875: 4, 876: 5, 888: 6, 200:4, 887:5,  895:2, 897:1, 902:6
+}
+
+champion_labels = pd.DataFrame(champion_id_to_class.items(), columns=['champion_id', 'label'])
+champion_labels['class_label'] = champion_labels['label'].map(class_labels)
+df = df.merge(champion_labels, on='champion_id', how='left')
+
+#any unlabeled data
+test = df[df['class_label'].isnull()]
+
+
+df = df.drop(['champion_id', 'champion_name', 'label'], axis=1)
+
+
 
 # Let's pivot the data for ML purposes now
-df_pivot = pd.pivot_table(df, index=['match_id', 'team_id'], columns='lane_id_1', values='champion_name', aggfunc='first')
+df_pivot = pd.pivot_table(df, index=['match_id', 'team_id'], columns='lane_id_1', values='class_label', aggfunc='first')
 df_pivot['win'] = df.groupby(['match_id', 'team_id'])['win'].first().values
 df_pivot.reset_index(inplace=True)
 df_pivot.drop('match_id', axis=1, inplace=True)
 
-# Do we have too many categories?
-# Distinct values for each column
-temp_df = df_pivot.copy()
-temp_df.drop(['team_id', 'win'], axis=1,inplace=True)
-distinct_df_before = temp_df.apply(lambda x: pd.Series(x.unique()))
-# Transpose the distinct DataFrame
-distinct_df_before = distinct_df_before.T
-
-# Let's only keep teams with the top 100 most played champions in each position
-threshold = len(df_pivot) * 0.01  # Calculate the threshold for 1%
-rows_to_drop = set()  # Set to collect row indices to be dropped
-for column in df_pivot.columns:
-    value_counts = df_pivot[column].value_counts()  # Count occurrences of each value
-    infrequent_values = value_counts[value_counts < threshold].index  # Get values occurring less than threshold
-    # Collect row indices to be dropped
-    rows_to_drop.update(df_pivot[df_pivot[column].isin(infrequent_values)].index)
-
-# what percent of rows are we about to drop
-# went from 140+ categories in each role to between 15-36 for each role
-len(rows_to_drop) / len(df_pivot) # 48% thats okay I guess? Can look into this effect later
-
-# Drop all collected rows at once
-df_pivot = df_pivot.drop(rows_to_drop)
 df_pivot.reset_index(inplace=True)
 
-# Distinct values for each column
-temp_df = df_pivot.copy()
-temp_df.drop(['index', 'team_id', 'win'], axis=1,inplace=True)
-distinct_df_after = temp_df.apply(lambda x: pd.Series(x.unique()))
-# Transpose the distinct DataFrame
-distinct_df_after = distinct_df_after.T
 df = df_pivot.copy()
 
 df.drop(['index', 'team_id'], axis=1, inplace=True)
 # need to encode the categories so that a ML model can use them
+
+
 # Perform one-hot encoding
 encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
 encoded_data = encoder.fit_transform(df.iloc[:, :-1])
@@ -208,13 +217,13 @@ best_accuracy_value = 0.0
 best_accuracy_model = None
 best_accuracy_params = None
 
-best_recall_value = 0.0
-best_recall_model = None
-best_recall_params = None
-
-best_precision_value = 0.0
-best_precision_model = None
-best_precision_params = None
+# best_recall_value = 0.0
+# best_recall_model = None
+# best_recall_params = None
+#
+# best_precision_value = 0.0
+# best_precision_model = None
+# best_precision_params = None
 
 
 # Loop over each model and hyperparameter combination
@@ -229,16 +238,16 @@ for model_info in models:
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         accuracy = accuracy_score(y_test, y_pred)
-        recall = recall_score(y_test, y_pred)
-        precision = precision_score(y_test, y_pred)
+        # recall = recall_score(y_test, y_pred)
+        # precision = precision_score(y_test, y_pred)
 
 
 
         print("Model: ", model)
         print("Parameters: ", param_combination)
         print("Accuracy: ", accuracy)
-        print("recall ", recall)
-        print("precision ", precision)
+        # print("recall ", recall)
+        # print("precision ", precision)
         print("-----------")
 
         # Update the best model and parameters if the accuracy is higher
@@ -247,15 +256,15 @@ for model_info in models:
             best_accuracy_model = model
             best_accuracy_params = param_combination
 
-        if recall > best_recall_value:
-            best_recall_value = recall
-            best_recall_model = model
-            best_recall_params = param_combination
-
-        if precision > best_precision_value:
-            best_precision_value = precision
-            best_precision_model = model
-            best_precision_params = param_combination
+        # if recall > best_recall_value:
+        #     best_recall_value = recall
+        #     best_recall_model = model
+        #     best_recall_params = param_combination
+        #
+        # if precision > best_precision_value:
+        #     best_precision_value = precision
+        #     best_precision_model = model
+        #     best_precision_params = param_combination
 
 end_time = time.time()
 elapsed_time = end_time - start_time
@@ -263,15 +272,15 @@ print("Elapsed time: {:.2f} seconds".format(elapsed_time))
 
 print("Best Model accuracy: ", best_accuracy_model)
 print("Best Parameters accuracy: ", best_accuracy_params)
-print("Best Accuracy accuracy: ", best_accuracy_value)
+print("Best Accuracy value: ", best_accuracy_value)
 
-print("Best Model recall: ", best_accuracy_model)
-print("Best Parameters recall: ", best_accuracy_params)
-print("Best Accuracy recall: ", best_accuracy_value)
-
-print("Best Model precision: ", best_accuracy_model)
-print("Best Parameters precision: ", best_accuracy_params)
-print("Best Accuracy precision: ", best_accuracy_value)
+# print("Best Model recall: ", best_accuracy_model)
+# print("Best Parameters recall: ", best_accuracy_params)
+# print("Best Accuracy value: ", best_accuracy_value)
+#
+# print("Best Model precision: ", best_accuracy_model)
+# print("Best Parameters precision: ", best_accuracy_params)
+# print("Best Accuracy value: ", best_accuracy_value)
 
 
 
