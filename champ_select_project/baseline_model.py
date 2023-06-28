@@ -19,6 +19,7 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 import xgboost as xgb
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import recall_score
+from sklearn.metrics import precision_score
 from sklearn.preprocessing import OneHotEncoder
 
 
@@ -203,10 +204,18 @@ models = [
     # {'model': Sequential(), 'params': {'hidden_layers': [(64,), (128,), (64, 32)], 'activation': ['relu', 'sigmoid'], 'lr': [0.001, 0.01, 0.1]}}
 ]
 
-best_accuracy = 0.0
-best_recall = 0.0
-best_model = None
-best_params = None
+best_accuracy_value = 0.0
+best_accuracy_model = None
+best_accuracy_params = None
+
+best_recall_value = 0.0
+best_recall_model = None
+best_recall_params = None
+
+best_precision_value = 0.0
+best_precision_model = None
+best_precision_params = None
+
 
 # Loop over each model and hyperparameter combination
 start_time = time.time()
@@ -220,28 +229,50 @@ for model_info in models:
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         accuracy = accuracy_score(y_test, y_pred)
-        # recall = recall_score(y_test, y_pred)
+        recall = recall_score(y_test, y_pred)
+        precision = precision_score(y_test, y_pred)
+
 
 
         print("Model: ", model)
         print("Parameters: ", param_combination)
         print("Accuracy: ", accuracy)
+        print("recall ", recall)
+        print("precision ", precision)
         print("-----------")
 
         # Update the best model and parameters if the accuracy is higher
-        if accuracy > best_accuracy:
-            best_accuracy = accuracy
-            best_model = model
-            best_params = param_combination
+        if accuracy > best_accuracy_value:
+            best_accuracy_value = accuracy
+            best_accuracy_model = model
+            best_accuracy_params = param_combination
 
+        if recall > best_recall_value:
+            best_recall_value = recall
+            best_recall_model = model
+            best_recall_params = param_combination
+
+        if precision > best_precision_value:
+            best_precision_value = precision
+            best_precision_model = model
+            best_precision_params = param_combination
 
 end_time = time.time()
 elapsed_time = end_time - start_time
 print("Elapsed time: {:.2f} seconds".format(elapsed_time))
 
-print("Best Model: ", best_model)
-print("Best Parameters: ", best_params)
-print("Best Accuracy: ", best_accuracy)
+print("Best Model accuracy: ", best_accuracy_model)
+print("Best Parameters accuracy: ", best_accuracy_params)
+print("Best Accuracy accuracy: ", best_accuracy_value)
+
+print("Best Model recall: ", best_accuracy_model)
+print("Best Parameters recall: ", best_accuracy_params)
+print("Best Accuracy recall: ", best_accuracy_value)
+
+print("Best Model precision: ", best_accuracy_model)
+print("Best Parameters precision: ", best_accuracy_params)
+print("Best Accuracy precision: ", best_accuracy_value)
+
 
 
 # Save model results to table in db
@@ -252,10 +283,14 @@ label = 'baseline_model'
 model_name = label + formatted_date
 number_of_rows_start = len(df_copy)
 metric_validated_against = 'test'
-metric_name = 'accuracy'
-metric_value = 0.5187853834276891
-model = "LogisticRegression(C=10, solver='saga')"
-parameters = "{'C': 10, 'solver': 'liblinear'}"
+metric_name =
+metric_value =
+model =
+
+# metric_name = 'accuracy'
+# metric_value = 0.5187853834276891
+# model = "LogisticRegression(C=10, solver='saga')"
+# parameters = "{'C': 10, 'solver': 'liblinear'}"
 
 
 columns = ['date', 'label', 'model_name', 'number_of_rows_start', 'metric_validated_against', 'metric_name',
