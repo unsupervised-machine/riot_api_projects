@@ -18,6 +18,9 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 import xgboost as xgb
 from sklearn.metrics import accuracy_score
+from sklearn.metrics import recall_score
+from sklearn.preprocessing import OneHotEncoder
+
 
 
 
@@ -97,24 +100,24 @@ df = df_copy.copy()
 
 
 # deal with games where people did not go to assigned lanes
-print("Number of player_matches: ", len(df))
-print("Number of matches: ", len(df['match_id'].unique()))
-print("Number of non_matching_lanes: ", len(df[df['lane_id_1'] != df['lane_id_2']]))
-print("Number of games_with_non_matching_lanes: ", len(df['match_id'][df['lane_id_1'] != df['lane_id_2']].unique()))
+# print("Number of player_matches: ", len(df))
+# print("Number of matches: ", len(df['match_id'].unique()))
+# print("Number of non_matching_lanes: ", len(df[df['lane_id_1'] != df['lane_id_2']]))
+# print("Number of games_with_non_matching_lanes: ", len(df['match_id'][df['lane_id_1'] != df['lane_id_2']].unique()))
 # From our 20k games 672 players did not go to the right lane in 621 games, that is about 3% of the games.
 # Feel comfortable dropping them for now.
 non_matching_lanes = df[df['lane_id_1'] != df['lane_id_2']]
 non_matching_games = non_matching_lanes['match_id'].unique()
 df = df[~df['match_id'].isin(non_matching_games)]
-print("New number of matches: ", len(df['match_id'].unique()))
+# print("New number of matches: ", len(df['match_id'].unique()))
 
 # We can drop one of the lane_id columns since they now contain the same info
 df = df.drop('lane_id_2', axis=1)
 
 # check for missing data
 # 0 missing data, I do not need to deal with this problem yet
-missing_data = df[df.isnull().any(axis=1)]
-print("Number of rows with any missing data: ", len(missing_data))
+# missing_data = df[df.isnull().any(axis=1)]
+# print("Number of rows with any missing data: ", len(missing_data))
 
 
 # there are Latin america games:
@@ -122,157 +125,70 @@ print("Number of rows with any missing data: ", len(missing_data))
 
 # Are the data types appropriate?
 # yes
-df.dtypes
-
-
-# Create new columns recording if team1/team2 won or not
-conditions = [
-    (df['team_id'] == 100) & (df['win'])
-]
-values = [True]
-values_2 = [False]
-df['team_1_win'] = np.select(conditions, values, default=False)
-# df['team_2_win'] = np.select(conditions, values_2, default=True)
-df['winner'] = np.where(df['team_1_win'], "Red", "Blue")
-df = df.drop(['team_1_win', 'win'], axis=1)
+# df.dtypes
 
 
 # Let's pivot the data for ML purposes now
-df_pivot = df.pivot( index=['match_id'], columns=['team_id', 'lane_id_1'], values=['champion_name'])
-match_winner_data = df[['match_id', 'winner']].groupby('match_id').first().reset_index()
+df_pivot = pd.pivot_table(df, index=['match_id', 'team_id'], columns='lane_id_1', values='champion_name', aggfunc='first')
+df_pivot['win'] = df.groupby(['match_id', 'team_id'])['win'].first().values
+df_pivot.reset_index(inplace=True)
+df_pivot.drop('match_id', axis=1, inplace=True)
 
-df_pivot_copy = df_pivot.copy()
-df_pivot = df_pivot_copy.copy()
-# df_pivot.columns
+# Do we have too many categories?
+# Distinct values for each column
+temp_df = df_pivot.copy()
+temp_df.drop(['team_id', 'win'], axis=1,inplace=True)
+distinct_df_before = temp_df.apply(lambda x: pd.Series(x.unique()))
+# Transpose the distinct DataFrame
+distinct_df_before = distinct_df_before.T
 
-original_columns = df_pivot.columns
-for i, column in enumerate(df_pivot.columns):
-    # print(i)
-    # print(column)
-    new_column_name_0 = f'champion_{i}'
-    df_pivot.insert((i+1)*3, new_column_name_0, df_pivot[column])
+# Let's only keep teams with the top 100 most played champions in each position
+threshold = len(df_pivot) * 0.01  # Calculate the threshold for 1%
+rows_to_drop = set()  # Set to collect row indices to be dropped
+for column in df_pivot.columns:
+    value_counts = df_pivot[column].value_counts()  # Count occurrences of each value
+    infrequent_values = value_counts[value_counts < threshold].index  # Get values occurring less than threshold
+    # Collect row indices to be dropped
+    rows_to_drop.update(df_pivot[df_pivot[column].isin(infrequent_values)].index)
 
-    new_column_name_1 = f'team_{i}'
-    df_pivot.insert((i+1)*3+1, new_column_name_1, column[1])
+# what percent of rows are we about to drop
+# went from 140+ categories in each role to between 15-36 for each role
+len(rows_to_drop) / len(df_pivot) # 48% thats okay I guess? Can look into this effect later
 
-    new_column_name_2 = f'lane_{i}'
-    df_pivot.insert((i+1)*3+2, new_column_name_2, column[2])
+# Drop all collected rows at once
+df_pivot = df_pivot.drop(rows_to_drop)
+df_pivot.reset_index(inplace=True)
 
-df_pivot = df_pivot.drop(original_columns, axis=1)
+# Distinct values for each column
+temp_df = df_pivot.copy()
+temp_df.drop(['index', 'team_id', 'win'], axis=1,inplace=True)
+distinct_df_after = temp_df.apply(lambda x: pd.Series(x.unique()))
+# Transpose the distinct DataFrame
+distinct_df_after = distinct_df_after.T
+df = df_pivot.copy()
 
-df_pivot.columns = df_pivot.columns.droplevel(level=[1, 2])
-df_pivot = df_pivot.reset_index()
+df.drop(['index', 'team_id'], axis=1, inplace=True)
+# need to encode the categories so that a ML model can use them
+# Perform one-hot encoding
+encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+encoded_data = encoder.fit_transform(df.iloc[:, :-1])
 
+# Create a new DataFrame with the encoded features
+encoded_df = pd.DataFrame(encoded_data, columns=encoder.get_feature_names_out(df.columns[:-1].tolist()))
 
-# df_pivot.columns = df_pivot.columns.droplevel(level=[1, 2])
-df_pivot = df_pivot.merge(match_winner_data, 'left', on='match_id')
-df = df_pivot
+# Combine the encoded features with the 'Result' column
+final_df = pd.concat([encoded_df, df['win']], axis=1)
 
+# Display the final encoded DataFrame
+print(final_df)
 
-# # Since the champion columns are not numeric we should one hot encode them
-# columns_to_encode = df.columns[1:31]
-# df_encoded = pd.get_dummies(df, columns=columns_to_encode)
-# bool_columns = df_encoded.select_dtypes(include=bool).columns
-# df_encoded[bool_columns] = df_encoded[bool_columns].astype(int)
-# df = df_encoded
-
-
-# neural net stuff
-import tensorflow as tf
-from sklearn import preprocessing
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-
-features = df.columns[1:31].tolist()
-target = 'winner'
-
-# Encode categorical features
-
-one_hot_encoder = preprocessing.OneHotEncoder(categories='auto', sparse_output=False, handle_unknown='infrequent_if_exist',
-                                              min_frequency=0.01)
-encoded_features = one_hot_encoder.fit_transform(df[features])
-feature_names = one_hot_encoder.get_feature_names_out(features)
-df_encoded = pd.DataFrame(encoded_features, columns=feature_names)
-df = pd.concat([df[target], df_encoded], axis=1)
-
-
-label_binarizer = preprocessing.LabelBinarizer()
-df[target] = label_binarizer.fit_transform(df[target])
-
-# Split the data into training and testing sets
-features = df.drop(['winner'], axis=1).columns.tolist()
-target = 'winner'
-
-
-X = df[features]
-y = df[target]
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-
-# Create the neural network model
-model = Sequential()
-model.add(Dense(32, activation='relu', input_dim=len(features)))
-model.add(Dense(16, activation='relu'))
-model.add(Dense(1, activation='sigmoid'))
-
-# Compile the model
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-
-# Train the model
-model.fit(X_train, y_train, epochs=10, batch_size=32, verbose=1)
-
-# Evaluate the model
-loss, accuracy = model.evaluate(X_test, y_test)
-print(f"Test loss: {loss:.4f}")
-print(f"Test accuracy: {accuracy:.4f}")
-
-# Make predictions on new data
-new_data = pd.DataFrame([['LA1_1316312345', 'Fizz', 100, 'TOP', 'Lee Sin', 100, 'JUNGLE',
-                          'Syndra', 100, 'MIDDLE', 'Ezreal', 100, 'BOTTOM', 'Alistar', 100, 'UTILITY',
-                          'Darius', 200, 'TOP', 'Kha'Zix', 200, 'JUNGLE', 'Zoe', 200, 'MIDDLE',
-                          'Sivir', 200, 'BOTTOM', 'Morgana', 200, 'UTILITY']],
-                        columns=features)
-
-new_data[features] = label_encoder.transform(new_data[features])
-predictions = model.predict(new_data)
-predicted_winner = label_encoder.inverse_transform([int(predictions[0])])[0]
-print(f"Predicted winner: {predicted_winner}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# implement embedding
-
-# super sparse matrix
-    # sk learn tools
-
-# signal to noise ratio
-
-# neural network
-    # embeddings
-    # optimal embedding depth
-
+df = final_df.copy()
 
 
 # Let's start doing some ML stuff
 # Create test and train set ( also create holdout set )
-X = df.drop(['winner', 'match_id'], axis=1)
-y = df['winner']
+X = df.drop(['win'], axis=1)
+y = df['win']
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 X_train, X_holdout, y_train, y_holdout = train_test_split(X_train, y_train, test_size=0.1, random_state=42)
 
@@ -288,6 +204,7 @@ models = [
 ]
 
 best_accuracy = 0.0
+best_recall = 0.0
 best_model = None
 best_params = None
 
@@ -303,6 +220,8 @@ for model_info in models:
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         accuracy = accuracy_score(y_test, y_pred)
+        # recall = recall_score(y_test, y_pred)
+
 
         print("Model: ", model)
         print("Parameters: ", param_combination)
